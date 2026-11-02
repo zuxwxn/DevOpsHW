@@ -1,0 +1,39 @@
+# Python bytecode and tool caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local Python environments and settings
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Runtime output, logs, and local databases
+*.log
+logs/
+*.sqlite3
+*.db
+
+# User uploads, test data, and generated assets
+uploads/
+test-images/
+fixtures/
+*.tmp
+
+# Downloaded or trained model assets (not required by this project)
+models/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
