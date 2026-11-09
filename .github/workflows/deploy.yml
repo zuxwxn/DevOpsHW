@@ -239,7 +239,7 @@ jobs:
           if ($env:MONITOR_PID) {
             $monitor = Get-Process -Id ([int]$env:MONITOR_PID) -ErrorAction SilentlyContinue
             if ($monitor) {
-              Wait-Process -Id $monitor.Id -Timeout 15 -ErrorAction SilentlyContinue
+              $null = $monitor.WaitForExit(15000)
               if (Get-Process -Id $monitor.Id -ErrorAction SilentlyContinue) {
                 Stop-Process -Id $monitor.Id -Force
               }
