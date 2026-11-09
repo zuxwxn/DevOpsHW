@@ -49,6 +49,30 @@ http://127.0.0.1:8000
 
 서버 종료는 실행 중인 터미널에서 `Ctrl+C`를 누릅니다.
 
+## Docker 실행
+
+Docker Desktop을 실행한 뒤, 프로젝트 최상위 폴더에서 이미지를 빌드하고 컨테이너를 시작합니다.
+
+```powershell
+docker build -t image-color-extractor:local .
+docker run --rm -p 8000:8000 image-color-extractor:local
+```
+
+브라우저에서 `http://127.0.0.1:8000`을 엽니다. 컨테이너는 루트 권한이 아닌 전용 사용자로 실행됩니다.
+
+## GitHub Actions 및 Docker Hub 배포
+
+`.github/workflows/ci.yml`은 pull request에서는 Docker 이미지를 빌드해 검증하고, 모든 push와 `workflow_dispatch` 실행에서는 Docker Hub에 이미지를 업로드합니다. 기본 브랜치에 push하면 `latest` 태그도 함께 생성됩니다.
+
+GitHub 저장소의 **Settings → Secrets and variables → Actions**에서 다음 Repository secrets를 등록해야 합니다.
+
+- `DOCKERHUB_USERNAME`: Docker Hub 사용자명
+- `DOCKERHUB_TOKEN`: Docker Hub에서 발급한 액세스 토큰
+
+`DOCKERHUB_USERNAME`에는 Docker ID만 입력합니다. URL, `docker.io/` 접두사, 공백, 따옴표, 이메일 주소를 포함하면 안 됩니다. `DOCKERHUB_TOKEN`에는 Docker Hub **Personal Access Token**의 값만 붙여넣으며, `Bearer ` 접두사나 따옴표를 넣지 않습니다. 계정 비밀번호는 사용하지 마세요.
+
+이미지는 `docker.io/<DOCKERHUB_USERNAME>/image-color-extractor`로 업로드됩니다. Docker Hub에서 같은 이름의 저장소를 미리 생성하고, 토큰에 해당 저장소의 읽기·쓰기 권한을 부여해 주세요. 인증 오류가 발생하면 기존 `DOCKERHUB_TOKEN` Secret을 삭제하고 새 Personal Access Token으로 다시 생성한 다음, 새 Secret을 등록하세요.
+
 ## 사용 방법
 
 1. 업로드 영역을 클릭하거나 이미지 파일을 끌어 놓습니다.
