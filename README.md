@@ -62,7 +62,7 @@ docker run --rm -p 8000:8000 image-color-extractor:local
 
 ## GitHub Actions 및 Docker Hub 배포
 
-`.github/workflows/ci.yml`은 pull request에서는 Docker 이미지를 빌드해 검증하고, 모든 push와 `workflow_dispatch` 실행에서는 Docker Hub에 이미지를 업로드합니다. 기본 브랜치에 push하면 `latest` 태그도 함께 생성됩니다.
+`.github/workflows/ci.yml`은 pull request에서는 Docker 이미지를 빌드해 검증하고, 모든 push와 `workflow_dispatch` 실행에서는 Docker Hub에 이미지를 업로드합니다. 기본 브랜치에 push하면 `latest` 태그도 함께 생성됩니다. Docker Hub 로그인은 GitHub Secrets를 환경 변수로 전달하고 Docker CLI의 `--password-stdin` 방식으로 수행하므로 토큰이 로그에 출력되지 않습니다.
 
 GitHub 저장소의 **Settings → Secrets and variables → Actions**에서 다음 Repository secrets를 등록해야 합니다.
 
