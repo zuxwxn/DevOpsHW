@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from io import BytesIO
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
@@ -14,6 +15,7 @@ STATIC_DIR = BASE_DIR / "static"
 MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MiB
 MAX_PIXELS = 50_000_000
 PALETTE_SIZE = 5
+APP_VERSION = os.getenv("APP_VERSION", "local").strip() or "local"
 
 # Pillow should reject images that claim unreasonable pixel counts before decoding.
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
@@ -23,9 +25,21 @@ app = FastAPI(title="이미지 대표 색상 추출기")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
+@app.middleware("http")
+async def add_version_header(request, call_next):
+    response = await call_next(request)
+    response.headers["X-App-Version"] = APP_VERSION
+    return response
+
+
 @app.get("/", include_in_schema=False)
 async def home() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok", "version": APP_VERSION}
 
 
 def error(message: str, status_code: int = 400) -> HTTPException:

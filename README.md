@@ -8,7 +8,8 @@
 
 - JPG, PNG, WEBP, GIF 이미지 업로드와 미리보기
 - 대표 색상 최대 5개 및 RGB/HEX 코드 표시
-- HEX 코드 클릭 복사
+- HEX 코드 클릭 복사 및 `#FF0000 복사 완료` 형식의 확인 메시지
+- 화면 배포 버전과 `/api/health` 버전 응답 표시
 - 분석 진행 상태와 오류 메시지 표시
 - 10MB 초과 파일, 비이미지 파일, 손상된 이미지 거부
 
@@ -75,7 +76,7 @@ GitHub 저장소의 **Settings → Secrets and variables → Actions**에서 다
 
 ## Self-hosted Runner 자동 배포
 
-`.github/workflows/deploy.yml`은 **Build and publish Docker image** 워크플로가 기본 브랜치에서 성공한 뒤 Windows Self-hosted Runner에서 실행됩니다. 이 Runner는 Docker Hub의 `latest` 이미지를 pull하고, `image-color-extractor`라는 이름의 컨테이너만 교체합니다. 새 컨테이너가 `http://127.0.0.1:8000/`에서 HTTP 200을 반환해야 배포가 성공으로 처리됩니다.
+`.github/workflows/deploy.yml`은 **Build and publish Docker image** 워크플로가 기본 브랜치에서 성공한 뒤 Windows Self-hosted Runner에서 실행됩니다. 이 Runner는 Docker Hub의 `latest` 이미지를 pull하고, `image-color-extractor`라는 이름의 컨테이너만 교체합니다. 새 컨테이너가 `http://127.0.0.1:8000/api/health`에서 해당 커밋 버전과 HTTP 200을 반환해야 배포가 성공으로 처리됩니다.
 
 배포 Runner에는 다음이 필요합니다.
 
@@ -85,7 +86,7 @@ GitHub 저장소의 **Settings → Secrets and variables → Actions**에서 다
 - GitHub Repository secrets `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
 - 로컬 포트 `8000`을 이미 다른 프로그램이 사용하지 않는 상태
 
-배포가 실패하면 새 컨테이너를 제거하고, 기존 컨테이너 이미지가 있었으면 해당 이미지로 되돌립니다. Runner 설치 폴더와 작업·진단·자격 증명 파일은 `.gitignore`로 Git에서 제외합니다.
+배포가 실패하면 새 컨테이너를 제거하고, 기존 컨테이너 이미지가 있었으면 해당 이미지로 되돌립니다. 배포 전부터 완료 후 30초까지 독립 모니터가 요청별 시작·종료 시각, HTTP 상태, 응답 시간과 버전을 기록합니다. 색상 추출·복사 메시지 자산·버전 API 결과는 GitHub Actions Summary에 정리되며, UTF-8 CSV/JSON/Markdown/컨테이너 로그는 `deployment-evidence-<run-id>` Artifact로 30일간 보관됩니다. Runner 설치 폴더와 작업·진단·자격 증명 파일은 `.gitignore`로 Git에서 제외합니다.
 
 ## 사용 방법
 

@@ -21,6 +21,7 @@ button, input { font: inherit; }
 h1, h2, p { margin-top: 0; }
 h1 { margin-bottom: 17px; font-size: clamp(2.3rem, 5vw, 4.3rem); line-height: 1.12; letter-spacing: -.065em; }
 .intro { color: var(--muted); font-size: 1.05rem; line-height: 1.7; }
+.version-badge { display: inline-flex; margin: 4px 0 0; border: 1px solid #cbd5ec; border-radius: 999px; padding: 6px 10px; color: #526077; background: rgba(255,255,255,.68); font-size: .72rem; font-weight: 700; letter-spacing: .02em; }
 .workspace { display: grid; grid-template-columns: 340px 1fr; gap: 22px; align-items: start; }
 .upload-panel, .preview-panel, .result-panel { border: 1px solid var(--line); border-radius: 20px; background: rgba(255,255,255,.78); box-shadow: 0 14px 38px rgba(30, 38, 55, .06); }
 .upload-panel { padding: 20px; }

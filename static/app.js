@@ -12,6 +12,7 @@ const resultSection = document.querySelector("#resultSection");
 const palette = document.querySelector("#palette");
 const statusMessage = document.querySelector("#statusMessage");
 const toast = document.querySelector("#toast");
+const versionBadge = document.querySelector("#versionBadge");
 let selectedFile = null;
 let objectUrl = null;
 let toastTimer;
@@ -45,8 +46,18 @@ function selectFile(file) {
 }
 function showToast(message) { toast.textContent = message; toast.classList.add("visible"); clearTimeout(toastTimer); toastTimer = setTimeout(() => toast.classList.remove("visible"), 2200); }
 async function copyHex(hex) {
-  try { await navigator.clipboard.writeText(hex); showToast(`${hex} 코드를 복사했습니다.`); }
+  try { await navigator.clipboard.writeText(hex); showToast(`${hex} 복사 완료`); }
   catch { showToast("복사하지 못했습니다. 코드를 직접 선택해 주세요."); }
+}
+async function loadVersion() {
+  try {
+    const response = await fetch("/api/health", { cache: "no-store" });
+    if (!response.ok) throw new Error("version unavailable");
+    const body = await response.json();
+    versionBadge.textContent = `배포 버전 ${body.version}`;
+  } catch {
+    versionBadge.textContent = "배포 버전 확인 불가";
+  }
 }
 function renderPalette(colors) {
   palette.innerHTML = "";
@@ -83,3 +94,4 @@ extractButton.addEventListener("click", async () => {
   } finally { extractButton.disabled = false; extractButton.textContent = "색상 추출"; }
 });
 window.addEventListener("beforeunload", () => { if (objectUrl) URL.revokeObjectURL(objectUrl); });
+loadVersion();

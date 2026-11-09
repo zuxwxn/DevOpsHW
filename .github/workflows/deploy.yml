@@ -18,11 +18,11 @@ env:
   CONTAINER_NAME: image-color-extractor
   HOST_PORT: "8000"
   CONTAINER_PORT: "8000"
+  SERVICE_URL: http://127.0.0.1:8000
+  DEPLOY_VERSION: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.workflow_run.head_sha }}
 
 jobs:
   deploy:
-    # Deploy only after a successful push from this repository's default branch.
-    # workflow_dispatch remains available for an explicit retry.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (
@@ -32,13 +32,16 @@ jobs:
         github.event.workflow_run.head_branch == github.event.repository.default_branch
       )
     runs-on: [self-hosted, Windows, X64]
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
+      - name: Check out deployment source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ env.DEPLOY_VERSION }}
+
       - name: Verify Docker Engine is ready
-        # Windows PowerShell ships with supported Windows runner installations;
-        # do not require a separate PowerShell 7 (pwsh) installation.
-        shell: powershell
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         run: |
           $deadline = (Get-Date).AddMinutes(2)
           do {
@@ -48,6 +51,53 @@ jobs:
           } while ((Get-Date) -lt $deadline)
           throw 'Docker Engine is unavailable. Start Docker Desktop for the account running this Self-hosted Runner, then retry the deployment.'
 
+      - name: Start independent service monitor
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $artifactDirectory = Join-Path $env:RUNNER_TEMP "image-color-extractor-$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+          $monitorLog = Join-Path $artifactDirectory 'service-monitor.csv'
+          $phaseFile = Join-Path $artifactDirectory 'monitor-phase.txt'
+          $stopFile = Join-Path $artifactDirectory 'monitor.stop'
+          $metadataFile = Join-Path $artifactDirectory 'deployment-metadata.json'
+          $functionalFile = Join-Path $artifactDirectory 'functional-tests.json'
+          $summaryFile = Join-Path $artifactDirectory 'summary.md'
+          'before' | Set-Content -LiteralPath $phaseFile -Encoding UTF8
+
+          $baseline = Invoke-WebRequest -UseBasicParsing -Uri "$env:SERVICE_URL/" -TimeoutSec 5
+          if ($baseline.StatusCode -ne 200) { throw "Baseline service returned HTTP $($baseline.StatusCode)" }
+
+          $environmentLines = @(
+            "ARTIFACT_DIR=$artifactDirectory",
+            "MONITOR_LOG=$monitorLog",
+            "MONITOR_PHASE=$phaseFile",
+            "MONITOR_STOP=$stopFile",
+            "DEPLOYMENT_METADATA=$metadataFile",
+            "FUNCTIONAL_RESULTS=$functionalFile",
+            "DEPLOYMENT_SUMMARY=$summaryFile"
+          )
+          $environmentLines | Out-File -FilePath $env:GITHUB_ENV -Encoding UTF8 -Append
+
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\monitor-service.ps1'
+          $arguments = @(
+            '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$scriptPath`"",
+            '-Url', "`"$env:SERVICE_URL/`"",
+            '-LogPath', "`"$monitorLog`"",
+            '-PhasePath', "`"$phaseFile`"",
+            '-StopPath', "`"$stopFile`"",
+            '-RequestIntervalSeconds', '1'
+          )
+          $monitor = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -PassThru
+          "MONITOR_PID=$($monitor.Id)" | Out-File -FilePath $env:GITHUB_ENV -Encoding UTF8 -Append
+
+          Start-Sleep -Seconds 3
+          if ($monitor.HasExited) { throw 'Independent service monitor exited before deployment.' }
+          $firstRecord = Import-Csv -LiteralPath $monitorLog | Select-Object -First 1
+          if (-not $firstRecord -or $firstRecord.http_status -ne '200') {
+            throw 'Independent service monitor did not record a successful baseline response.'
+          }
+          Write-Host "Baseline recorded: HTTP $($firstRecord.http_status), version=$($firstRecord.version)"
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v4
         with:
@@ -55,55 +105,168 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Pull, replace, and verify local service
-        shell: powershell
+      - name: Pull and replace local service
+        id: deploy
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           $image = "docker.io/$env:DOCKERHUB_USERNAME/$env:IMAGE_NAME`:latest"
           $portMapping = "$($env:HOST_PORT):$($env:CONTAINER_PORT)"
+          $startedAt = [DateTimeOffset]::UtcNow
           $previousContainerId = docker ps -aq --filter "name=^/$env:CONTAINER_NAME$"
           $previousImageId = $null
+          $newImageId = $null
+          $repoDigest = $null
+          $result = 'failed'
+          $deploymentError = $null
 
           if ($previousContainerId) {
             $previousImageId = docker inspect --format '{{.Image}}' $previousContainerId
           }
-
-          docker pull $image
-          if ($LASTEXITCODE -ne 0) { throw "Unable to pull $image" }
-
-          if ($previousContainerId) {
-            docker rm -f $previousContainerId
-            if ($LASTEXITCODE -ne 0) { throw "Unable to replace existing container $env:CONTAINER_NAME" }
-          }
+          'deploying' | Set-Content -LiteralPath $env:MONITOR_PHASE -Encoding UTF8
 
           try {
-            docker run -d --name $env:CONTAINER_NAME --restart unless-stopped -p $portMapping $image
+            docker pull $image
+            if ($LASTEXITCODE -ne 0) { throw "Unable to pull $image" }
+            $newImageId = docker image inspect --format '{{.Id}}' $image
+            $repoDigest = docker image inspect --format '{{index .RepoDigests 0}}' $image
+
+            if ($previousContainerId) {
+              docker rm -f $previousContainerId
+              if ($LASTEXITCODE -ne 0) { throw "Unable to replace existing container $env:CONTAINER_NAME" }
+            }
+
+            docker run -d --name $env:CONTAINER_NAME --restart unless-stopped -p $portMapping `
+              -e "APP_VERSION=$env:DEPLOY_VERSION" `
+              --label "org.opencontainers.image.revision=$env:DEPLOY_VERSION" `
+              $image
             if ($LASTEXITCODE -ne 0) { throw "Unable to start the new container from $image" }
 
-            $endpoint = "http://127.0.0.1:$($env:HOST_PORT)/"
             $deadline = (Get-Date).AddMinutes(2)
             do {
               try {
-                $response = Invoke-WebRequest -UseBasicParsing -Uri $endpoint -TimeoutSec 5
-                if ($response.StatusCode -eq 200) {
-                  Write-Host "Deployment succeeded: $endpoint"
-                  exit 0
+                $response = Invoke-WebRequest -UseBasicParsing -Uri "$env:SERVICE_URL/api/health" -TimeoutSec 5
+                $health = $response.Content | ConvertFrom-Json
+                if ($response.StatusCode -eq 200 -and $health.version -eq $env:DEPLOY_VERSION) {
+                  $result = 'success'
+                  'after' | Set-Content -LiteralPath $env:MONITOR_PHASE -Encoding UTF8
+                  Write-Host "Deployment succeeded: $env:SERVICE_URL, version=$($health.version)"
+                  break
                 }
               } catch {
                 Start-Sleep -Seconds 3
               }
             } while ((Get-Date) -lt $deadline)
-            throw "The new container did not return HTTP 200 at $endpoint"
+            if ($result -ne 'success') { throw 'The new container did not report the expected version within two minutes.' }
           } catch {
-            $failure = $_
+            $deploymentError = $_.Exception.Message
+            'rollback' | Set-Content -LiteralPath $env:MONITOR_PHASE -Encoding UTF8
             docker logs $env:CONTAINER_NAME 2>$null
             docker rm -f $env:CONTAINER_NAME 2>$null
-
-            # Restore the former image if the replacement cannot serve traffic.
             if ($previousImageId) {
-              Write-Warning "Restoring the previous image after failed deployment."
+              Write-Warning 'Restoring the previous image after failed deployment.'
               docker run -d --name $env:CONTAINER_NAME --restart unless-stopped -p $portMapping $previousImageId
             }
-            throw $failure
+          } finally {
+            $metadata = [ordered]@{
+              service_url = $env:SERVICE_URL
+              deploy_version = $env:DEPLOY_VERSION
+              image = $image
+              previous_container_id = $previousContainerId
+              previous_image_id = $previousImageId
+              new_container_id = (docker ps -aq --filter "name=^/$env:CONTAINER_NAME$")
+              new_image_id = $newImageId
+              repo_digest = $repoDigest
+              started_utc = $startedAt.ToString('o')
+              ended_utc = [DateTimeOffset]::UtcNow.ToString('o')
+              result = $result
+              error = $deploymentError
+            }
+            $metadata | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $env:DEPLOYMENT_METADATA -Encoding UTF8
           }
+          if ($deploymentError) { throw $deploymentError }
+
+      - name: Verify color extraction and UI improvement
+        id: functional
+        if: steps.deploy.outcome == 'success'
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $testImage = Join-Path $env:RUNNER_TEMP 'solid-red.png'
+          python -c "from PIL import Image; Image.new('RGB',(64,64),(255,0,0)).save(r'$testImage')"
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to create the solid-color PNG fixture.' }
+
+          $curlOutput = @(curl.exe -sS -w "`n%{http_code}" -F "file=@$testImage;type=image/png" "$env:SERVICE_URL/api/extract")
+          if ($LASTEXITCODE -ne 0 -or $curlOutput.Count -lt 2) { throw 'Color extraction request failed.' }
+          $httpStatus = [int]$curlOutput[-1]
+          $body = ($curlOutput[0..($curlOutput.Count - 2)] -join "`n") | ConvertFrom-Json
+          $extractedHex = [string]$body.colors[0].hex
+
+          $healthResponse = Invoke-WebRequest -UseBasicParsing -Uri "$env:SERVICE_URL/api/health" -TimeoutSec 5
+          $health = $healthResponse.Content | ConvertFrom-Json
+          $scriptResponse = Invoke-WebRequest -UseBasicParsing -Uri "$env:SERVICE_URL/static/app.js" -TimeoutSec 5
+          $copyMessagePass = $scriptResponse.Content -match '\$\{hex\} 복사 완료'
+          $colorPass = $httpStatus -eq 200 -and $extractedHex -eq '#FF0000'
+          $healthPass = $healthResponse.StatusCode -eq 200 -and $health.version -eq $env:DEPLOY_VERSION
+
+          $functional = [ordered]@{
+            expected_hex = '#FF0000'
+            extracted_hex = $extractedHex
+            color_extract_http_status = $httpStatus
+            color_test_passed = $colorPass
+            expected_copy_message = '#FF0000 복사 완료'
+            copy_message_asset_passed = $copyMessagePass
+            health_http_status = [int]$healthResponse.StatusCode
+            health_version = [string]$health.version
+            health_test_passed = $healthPass
+          }
+          $functional | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $env:FUNCTIONAL_RESULTS -Encoding UTF8
+          if (-not $colorPass -or -not $copyMessagePass -or -not $healthPass) {
+            throw 'One or more post-deployment functional checks failed.'
+          }
+
+      - name: Continue post-deployment observation
+        if: always()
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          $seconds = if ('${{ steps.deploy.outcome }}' -eq 'success') { 30 } else { 5 }
+          Write-Host "Continuing independent monitoring for $seconds seconds."
+          Start-Sleep -Seconds $seconds
+
+      - name: Stop monitor and collect UTF-8 logs
+        if: always()
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          New-Item -ItemType File -Path $env:MONITOR_STOP -Force | Out-Null
+          if ($env:MONITOR_PID) {
+            $monitor = Get-Process -Id ([int]$env:MONITOR_PID) -ErrorAction SilentlyContinue
+            if ($monitor) {
+              Wait-Process -Id $monitor.Id -Timeout 15 -ErrorAction SilentlyContinue
+              if (Get-Process -Id $monitor.Id -ErrorAction SilentlyContinue) {
+                Stop-Process -Id $monitor.Id -Force
+              }
+            }
+          }
+          $containerLog = Join-Path $env:ARTIFACT_DIR 'container.log'
+          docker logs $env:CONTAINER_NAME 2>&1 | Out-File -LiteralPath $containerLog -Encoding UTF8
+
+      - name: Create deployment summary
+        if: always()
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        run: |
+          & "$env:GITHUB_WORKSPACE\scripts\summarize-deployment.ps1" `
+            -MonitorLogPath $env:MONITOR_LOG `
+            -MetadataPath $env:DEPLOYMENT_METADATA `
+            -FunctionalResultPath $env:FUNCTIONAL_RESULTS `
+            -SummaryPath $env:DEPLOYMENT_SUMMARY `
+            -ServiceUrl $env:SERVICE_URL `
+            -DeployVersion $env:DEPLOY_VERSION
+
+      - name: Upload deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: deployment-evidence-${{ github.run_id }}
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: error
+          retention-days: 30
