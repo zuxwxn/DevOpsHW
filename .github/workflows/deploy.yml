@@ -36,7 +36,9 @@ jobs:
 
     steps:
       - name: Verify Docker Engine is ready
-        shell: pwsh
+        # Windows PowerShell ships with supported Windows runner installations;
+        # do not require a separate PowerShell 7 (pwsh) installation.
+        shell: powershell
         run: |
           $deadline = (Get-Date).AddMinutes(2)
           do {
@@ -54,7 +56,7 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Pull, replace, and verify local service
-        shell: pwsh
+        shell: powershell
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |

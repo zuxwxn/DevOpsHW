@@ -81,6 +81,7 @@ GitHub 저장소의 **Settings → Secrets and variables → Actions**에서 다
 
 - 기본 라벨 `self-hosted`, `Windows`, `X64`를 가진 온라인 GitHub Self-hosted Runner
 - Runner와 같은 Windows 사용자 계정에서 실행 가능한 Docker Desktop
+- 별도 PowerShell 7 설치 없이 기본 Windows PowerShell 사용
 - GitHub Repository secrets `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
 - 로컬 포트 `8000`을 이미 다른 프로그램이 사용하지 않는 상태
 
