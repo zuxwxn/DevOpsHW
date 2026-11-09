@@ -37,3 +37,11 @@ models/
 Thumbs.db
 .vscode/
 .idea/
+
+# GitHub Actions self-hosted runner installation and runtime data
+actions-runner/
+_work/
+_diag/
+.runner
+.credentials
+.credentials_rsaparams

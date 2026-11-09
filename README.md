@@ -73,6 +73,19 @@ GitHub 저장소의 **Settings → Secrets and variables → Actions**에서 다
 
 이미지는 `docker.io/<DOCKERHUB_USERNAME>/image-color-extractor`로 업로드됩니다. Docker Hub에서 같은 이름의 저장소를 미리 생성하고, 토큰에 해당 저장소의 읽기·쓰기 권한을 부여해 주세요. 인증 오류가 발생하면 기존 `DOCKERHUB_TOKEN` Secret을 삭제하고 새 Personal Access Token으로 다시 생성한 다음, 새 Secret을 등록하세요.
 
+## Self-hosted Runner 자동 배포
+
+`.github/workflows/deploy.yml`은 **Build and publish Docker image** 워크플로가 기본 브랜치에서 성공한 뒤 Windows Self-hosted Runner에서 실행됩니다. 이 Runner는 Docker Hub의 `latest` 이미지를 pull하고, `image-color-extractor`라는 이름의 컨테이너만 교체합니다. 새 컨테이너가 `http://127.0.0.1:8000/`에서 HTTP 200을 반환해야 배포가 성공으로 처리됩니다.
+
+배포 Runner에는 다음이 필요합니다.
+
+- 기본 라벨 `self-hosted`, `Windows`, `X64`를 가진 온라인 GitHub Self-hosted Runner
+- Runner와 같은 Windows 사용자 계정에서 실행 가능한 Docker Desktop
+- GitHub Repository secrets `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`
+- 로컬 포트 `8000`을 이미 다른 프로그램이 사용하지 않는 상태
+
+배포가 실패하면 새 컨테이너를 제거하고, 기존 컨테이너 이미지가 있었으면 해당 이미지로 되돌립니다. Runner 설치 폴더와 작업·진단·자격 증명 파일은 `.gitignore`로 Git에서 제외합니다.
+
 ## 사용 방법
 
 1. 업로드 영역을 클릭하거나 이미지 파일을 끌어 놓습니다.
