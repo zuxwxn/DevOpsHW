@@ -33,20 +33,27 @@ jobs:
       )
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 20
-    env:
-      ARTIFACT_DIR: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}
-      MONITOR_LOG: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\service-monitor.csv
-      MONITOR_PHASE: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\monitor-phase.txt
-      MONITOR_STOP: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\monitor.stop
-      DEPLOYMENT_METADATA: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\deployment-metadata.json
-      FUNCTIONAL_RESULTS: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\functional-tests.json
-      DEPLOYMENT_SUMMARY: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\summary.md
 
     steps:
       - name: Check out deployment source
         uses: actions/checkout@v7
         with:
           ref: ${{ env.DEPLOY_VERSION }}
+
+      - name: Initialize deployment evidence paths
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
+        run: |
+          $artifactDirectory = Join-Path $env:RUNNER_TEMP "image-color-extractor-$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
+          @(
+            "ARTIFACT_DIR=$artifactDirectory"
+            "MONITOR_LOG=$(Join-Path $artifactDirectory 'service-monitor.csv')"
+            "MONITOR_PHASE=$(Join-Path $artifactDirectory 'monitor-phase.txt')"
+            "MONITOR_STOP=$(Join-Path $artifactDirectory 'monitor.stop')"
+            "DEPLOYMENT_METADATA=$(Join-Path $artifactDirectory 'deployment-metadata.json')"
+            "FUNCTIONAL_RESULTS=$(Join-Path $artifactDirectory 'functional-tests.json')"
+            "DEPLOYMENT_SUMMARY=$(Join-Path $artifactDirectory 'summary.md')"
+          ) | Out-File -FilePath $env:GITHUB_ENV -Encoding UTF8 -Append
 
       - name: Verify Docker Engine is ready
         shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
