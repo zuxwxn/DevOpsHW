@@ -246,7 +246,18 @@ jobs:
             }
           }
           $containerLog = Join-Path $env:ARTIFACT_DIR 'container.log'
-          docker logs $env:CONTAINER_NAME 2>&1 | Out-File -LiteralPath $containerLog -Encoding UTF8
+          $previousErrorPreference = $ErrorActionPreference
+          try {
+            $ErrorActionPreference = 'Continue'
+            $containerOutput = @(docker logs $env:CONTAINER_NAME 2>&1)
+            $dockerLogExitCode = $LASTEXITCODE
+          } finally {
+            $ErrorActionPreference = $previousErrorPreference
+          }
+          $containerOutput | ForEach-Object { "$_" } | Out-File -LiteralPath $containerLog -Encoding UTF8
+          if ($dockerLogExitCode -ne 0) {
+            Write-Warning "docker logs exited with code $dockerLogExitCode; captured output was still saved."
+          }
 
       - name: Create deployment summary
         if: always()
