@@ -33,6 +33,14 @@ jobs:
       )
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 20
+    env:
+      ARTIFACT_DIR: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}
+      MONITOR_LOG: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\service-monitor.csv
+      MONITOR_PHASE: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\monitor-phase.txt
+      MONITOR_STOP: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\monitor.stop
+      DEPLOYMENT_METADATA: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\deployment-metadata.json
+      FUNCTIONAL_RESULTS: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\functional-tests.json
+      DEPLOYMENT_SUMMARY: ${{ runner.temp }}\image-color-extractor-${{ github.run_id }}\summary.md
 
     steps:
       - name: Check out deployment source
@@ -41,7 +49,7 @@ jobs:
           ref: ${{ env.DEPLOY_VERSION }}
 
       - name: Verify Docker Engine is ready
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $deadline = (Get-Date).AddMinutes(2)
           do {
@@ -52,39 +60,21 @@ jobs:
           throw 'Docker Engine is unavailable. Start Docker Desktop for the account running this Self-hosted Runner, then retry the deployment.'
 
       - name: Start independent service monitor
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
-          $artifactDirectory = Join-Path $env:RUNNER_TEMP "image-color-extractor-$env:GITHUB_RUN_ID"
-          New-Item -ItemType Directory -Path $artifactDirectory -Force | Out-Null
-          $monitorLog = Join-Path $artifactDirectory 'service-monitor.csv'
-          $phaseFile = Join-Path $artifactDirectory 'monitor-phase.txt'
-          $stopFile = Join-Path $artifactDirectory 'monitor.stop'
-          $metadataFile = Join-Path $artifactDirectory 'deployment-metadata.json'
-          $functionalFile = Join-Path $artifactDirectory 'functional-tests.json'
-          $summaryFile = Join-Path $artifactDirectory 'summary.md'
-          'before' | Set-Content -LiteralPath $phaseFile -Encoding UTF8
+          New-Item -ItemType Directory -Path $env:ARTIFACT_DIR -Force | Out-Null
+          'before' | Set-Content -LiteralPath $env:MONITOR_PHASE -Encoding UTF8
 
           $baseline = Invoke-WebRequest -UseBasicParsing -Uri "$env:SERVICE_URL/" -TimeoutSec 5
           if ($baseline.StatusCode -ne 200) { throw "Baseline service returned HTTP $($baseline.StatusCode)" }
-
-          $environmentLines = @(
-            "ARTIFACT_DIR=$artifactDirectory",
-            "MONITOR_LOG=$monitorLog",
-            "MONITOR_PHASE=$phaseFile",
-            "MONITOR_STOP=$stopFile",
-            "DEPLOYMENT_METADATA=$metadataFile",
-            "FUNCTIONAL_RESULTS=$functionalFile",
-            "DEPLOYMENT_SUMMARY=$summaryFile"
-          )
-          $environmentLines | Out-File -FilePath $env:GITHUB_ENV -Encoding UTF8 -Append
 
           $scriptPath = Join-Path $env:GITHUB_WORKSPACE 'scripts\monitor-service.ps1'
           $arguments = @(
             '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$scriptPath`"",
             '-Url', "`"$env:SERVICE_URL/`"",
-            '-LogPath', "`"$monitorLog`"",
-            '-PhasePath', "`"$phaseFile`"",
-            '-StopPath', "`"$stopFile`"",
+            '-LogPath', "`"$env:MONITOR_LOG`"",
+            '-PhasePath', "`"$env:MONITOR_PHASE`"",
+            '-StopPath', "`"$env:MONITOR_STOP`"",
             '-RequestIntervalSeconds', '1'
           )
           $monitor = Start-Process -FilePath 'powershell.exe' -ArgumentList $arguments -WindowStyle Hidden -PassThru
@@ -92,7 +82,7 @@ jobs:
 
           Start-Sleep -Seconds 3
           if ($monitor.HasExited) { throw 'Independent service monitor exited before deployment.' }
-          $firstRecord = Import-Csv -LiteralPath $monitorLog | Select-Object -First 1
+          $firstRecord = Import-Csv -LiteralPath $env:MONITOR_LOG | Select-Object -First 1
           if (-not $firstRecord -or $firstRecord.http_status -ne '200') {
             throw 'Independent service monitor did not record a successful baseline response.'
           }
@@ -107,7 +97,7 @@ jobs:
 
       - name: Pull and replace local service
         id: deploy
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
@@ -190,7 +180,7 @@ jobs:
       - name: Verify color extraction and UI improvement
         id: functional
         if: steps.deploy.outcome == 'success'
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $testImage = Join-Path $env:RUNNER_TEMP 'solid-red.png'
           python -c "from PIL import Image; Image.new('RGB',(64,64),(255,0,0)).save(r'$testImage')"
@@ -227,7 +217,7 @@ jobs:
 
       - name: Continue post-deployment observation
         if: always()
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           $seconds = if ('${{ steps.deploy.outcome }}' -eq 'success') { 30 } else { 5 }
           Write-Host "Continuing independent monitoring for $seconds seconds."
@@ -235,8 +225,9 @@ jobs:
 
       - name: Stop monitor and collect UTF-8 logs
         if: always()
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
+          New-Item -ItemType Directory -Path $env:ARTIFACT_DIR -Force | Out-Null
           New-Item -ItemType File -Path $env:MONITOR_STOP -Force | Out-Null
           if ($env:MONITOR_PID) {
             $monitor = Get-Process -Id ([int]$env:MONITOR_PID) -ErrorAction SilentlyContinue
@@ -252,7 +243,7 @@ jobs:
 
       - name: Create deployment summary
         if: always()
-        shell: powershell -NoProfile -ExecutionPolicy Bypass -File {0}
+        shell: powershell -NoProfile -ExecutionPolicy Bypass -Command ". '{0}'"
         run: |
           & "$env:GITHUB_WORKSPACE\scripts\summarize-deployment.ps1" `
             -MonitorLogPath $env:MONITOR_LOG `
