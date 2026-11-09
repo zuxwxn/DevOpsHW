@@ -1,0 +1,26 @@
+# Files that are not needed to build or run the image
+.git/
+.github/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+.env
+.env.*
+*.log
+logs/
+uploads/
+test-images/
+fixtures/
+models/
+*.pt
+*.pth
+*.onnx
+*.safetensors
+README.md
+.DS_Store
+Thumbs.db
